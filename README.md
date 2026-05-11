@@ -8,7 +8,7 @@ A scheduled GitHub Action runs hourly and sets the car's charging amps based on
 the time of day in America/Los_Angeles:
 
 - 00:00–09:00 → 12 A
-- 09:00–24:00 → 6 A
+- 09:00–24:00 → 10 A
 
 If the car is asleep or not plugged in, Tesla returns an error and the
 workflow exits 0 (expected no-op).

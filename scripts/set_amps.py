@@ -4,7 +4,7 @@ Hourly Tesla charging-amps adjuster.
 
 Reads the current time in America/Los_Angeles and sets the car's charging amps:
   00:00–09:00 -> 12 A
-  09:00–24:00 ->  6 A
+  09:00–24:00 -> 10 A
 
 Sends the signed command through a tesla-http-proxy listening on localhost:4443.
 """
@@ -38,7 +38,7 @@ def refresh_access_token(client_id: str, client_secret: str, refresh_token: str)
 
 
 def target_amps_for_hour(hour: int) -> int:
-    return 12 if 0 <= hour < 9 else 6
+    return 12 if 0 <= hour < 9 else 10
 
 
 def send_set_amps(access_token: str, vin: str, amps: int):
