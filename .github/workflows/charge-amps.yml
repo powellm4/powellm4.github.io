@@ -1,0 +1,68 @@
+name: Set charging amps
+
+on:
+  schedule:
+    - cron: '0 * * * *'
+  workflow_dispatch:
+
+jobs:
+  set-amps:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install tesla-http-proxy
+        run: go install github.com/teslamotors/vehicle-command/cmd/tesla-http-proxy@latest
+
+      - name: Write private key and TLS cert
+        env:
+          TESLA_PRIVATE_KEY: ${{ secrets.TESLA_PRIVATE_KEY }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/tesla"
+          umask 077
+          printf '%s\n' "$TESLA_PRIVATE_KEY" > "$RUNNER_TEMP/tesla/private.pem"
+          openssl req -x509 -nodes -newkey ec -pkeyopt ec_paramgen_curve:secp521r1 \
+            -keyout "$RUNNER_TEMP/tesla/tls.key" \
+            -out "$RUNNER_TEMP/tesla/tls.crt" \
+            -days 365 \
+            -subj "/CN=localhost" \
+            -addext "subjectAltName=DNS:localhost,IP:127.0.0.1"
+
+      - name: Start tesla-http-proxy
+        run: |
+          "$HOME/go/bin/tesla-http-proxy" \
+            -tls-key "$RUNNER_TEMP/tesla/tls.key" \
+            -cert "$RUNNER_TEMP/tesla/tls.crt" \
+            -key-file "$RUNNER_TEMP/tesla/private.pem" \
+            -port 4443 \
+            -host localhost \
+            -verbose > "$RUNNER_TEMP/tesla/proxy.log" 2>&1 &
+          echo $! > "$RUNNER_TEMP/tesla/proxy.pid"
+          for i in 1 2 3 4 5 6 7 8 9 10; do
+            if curl -sk https://localhost:4443/ > /dev/null 2>&1 || [ $? -ne 7 ]; then
+              echo "Proxy is up"
+              break
+            fi
+            sleep 1
+          done
+
+      - name: Set charging amps
+        env:
+          TESLA_CLIENT_ID: ${{ secrets.TESLA_CLIENT_ID }}
+          TESLA_CLIENT_SECRET: ${{ secrets.TESLA_CLIENT_SECRET }}
+          TESLA_REFRESH_TOKEN: ${{ secrets.TESLA_REFRESH_TOKEN }}
+          TESLA_VIN: ${{ secrets.TESLA_VIN }}
+        run: python3 scripts/set_amps.py
+
+      - name: Dump proxy logs on failure
+        if: failure()
+        run: cat "$RUNNER_TEMP/tesla/proxy.log" || true
