@@ -20,8 +20,12 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Install tesla-http-proxy
-        run: go install github.com/teslamotors/vehicle-command/cmd/tesla-http-proxy@latest
+      - name: Build tesla-http-proxy
+        run: |
+          git clone --depth 1 https://github.com/teslamotors/vehicle-command.git "$RUNNER_TEMP/vehicle-command"
+          cd "$RUNNER_TEMP/vehicle-command"
+          go build -o "$RUNNER_TEMP/tesla-http-proxy" ./cmd/tesla-http-proxy
+          "$RUNNER_TEMP/tesla-http-proxy" -h 2>&1 | head -20 || true
 
       - name: Write private key and TLS cert
         env:
@@ -39,7 +43,7 @@ jobs:
 
       - name: Start tesla-http-proxy
         run: |
-          "$HOME/go/bin/tesla-http-proxy" \
+          "$RUNNER_TEMP/tesla-http-proxy" \
             -tls-key "$RUNNER_TEMP/tesla/tls.key" \
             -cert "$RUNNER_TEMP/tesla/tls.crt" \
             -key-file "$RUNNER_TEMP/tesla/private.pem" \
