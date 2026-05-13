@@ -24,6 +24,7 @@ Set these in repo Settings → Secrets and variables → Actions:
 | `TESLA_REFRESH_TOKEN` | output of `scripts/oauth_helper.py` |
 | `TESLA_PRIVATE_KEY` | full PEM contents of the EC P-256 private key |
 | `TESLA_VIN` | the car's 17-character VIN |
+| `GH_PAT` | fine-grained PAT with `Secrets: Read and write` on this repo (lets the workflow auto-rotate `TESLA_REFRESH_TOKEN`) |
 
 ## Re-running OAuth (when the refresh token expires)
 

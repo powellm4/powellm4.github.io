@@ -65,7 +65,27 @@ jobs:
           TESLA_CLIENT_SECRET: ${{ secrets.TESLA_CLIENT_SECRET }}
           TESLA_REFRESH_TOKEN: ${{ secrets.TESLA_REFRESH_TOKEN }}
           TESLA_VIN: ${{ secrets.TESLA_VIN }}
+          NEW_REFRESH_TOKEN_FILE: ${{ runner.temp }}/new_refresh_token
         run: python3 scripts/set_amps.py
+
+      - name: Persist rotated refresh token
+        # Runs even if set-amps failed, so a 401 doesn't leave us stuck on a stale token.
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+          TOKEN_FILE: ${{ runner.temp }}/new_refresh_token
+        run: |
+          if [ ! -s "$TOKEN_FILE" ]; then
+            echo "No rotated token to persist."
+            exit 0
+          fi
+          if [ -z "${GH_TOKEN:-}" ]; then
+            echo "::warning::Refresh token rotated, but GH_PAT secret is not set; cannot update TESLA_REFRESH_TOKEN. Next run will likely 401."
+            exit 0
+          fi
+          gh secret set TESLA_REFRESH_TOKEN --repo "$GITHUB_REPOSITORY" < "$TOKEN_FILE"
+          echo "Updated TESLA_REFRESH_TOKEN secret with rotated value."
+          rm -f "$TOKEN_FILE"
 
       - name: Dump proxy logs on failure
         if: failure()

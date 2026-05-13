@@ -7,6 +7,11 @@ Reads the current time in America/Los_Angeles and sets the car's charging amps:
   09:00–24:00 -> 10 A
 
 Sends the signed command through a tesla-http-proxy listening on localhost:4443.
+
+Tesla rotates refresh tokens (each refresh call returns a new one). If the new
+refresh_token differs from the input, this script writes it to the path in
+$NEW_REFRESH_TOKEN_FILE (default /tmp/new_refresh_token). The workflow then
+updates the TESLA_REFRESH_TOKEN secret so the next run uses the latest token.
 """
 import json
 import os
@@ -21,9 +26,15 @@ from zoneinfo import ZoneInfo
 TOKEN_URL = "https://auth.tesla.com/oauth2/v3/token"
 PROXY_BASE = "https://localhost:4443"
 TZ = ZoneInfo("America/Los_Angeles")
+NEW_REFRESH_TOKEN_FILE = os.environ.get(
+    "NEW_REFRESH_TOKEN_FILE", "/tmp/new_refresh_token"
+)
 
 
-def refresh_access_token(client_id: str, client_secret: str, refresh_token: str) -> str:
+def refresh_access_token(
+    client_id: str, client_secret: str, refresh_token: str
+) -> tuple[str, str | None]:
+    """Returns (access_token, new_refresh_token_or_None)."""
     body = urllib.parse.urlencode({
         "grant_type": "refresh_token",
         "client_id": client_id,
@@ -33,8 +44,20 @@ def refresh_access_token(client_id: str, client_secret: str, refresh_token: str)
     }).encode()
     req = urllib.request.Request(TOKEN_URL, data=body, method="POST")
     req.add_header("Content-Type", "application/x-www-form-urlencoded")
-    with urllib.request.urlopen(req, timeout=20) as resp:
-        return json.loads(resp.read())["access_token"]
+    try:
+        with urllib.request.urlopen(req, timeout=20) as resp:
+            data = json.loads(resp.read())
+    except urllib.error.HTTPError as e:
+        body_text = ""
+        try:
+            body_text = e.read().decode()
+        except Exception:
+            pass
+        print(f"Token refresh failed: HTTP {e.code} {body_text}", file=sys.stderr)
+        raise
+    new_refresh = data.get("refresh_token")
+    rotated = new_refresh if (new_refresh and new_refresh != refresh_token) else None
+    return data["access_token"], rotated
 
 
 def target_amps_for_hour(hour: int) -> int:
@@ -71,7 +94,19 @@ def main() -> int:
     amps = target_amps_for_hour(now.hour)
     print(f"Local time: {now.isoformat()}  target_amps: {amps}")
 
-    access_token = refresh_access_token(client_id, client_secret, refresh_token)
+    access_token, rotated = refresh_access_token(client_id, client_secret, refresh_token)
+    if rotated:
+        # Write to a file the workflow will pick up to update the secret.
+        os.makedirs(os.path.dirname(NEW_REFRESH_TOKEN_FILE) or ".", exist_ok=True)
+        with open(NEW_REFRESH_TOKEN_FILE, "w") as f:
+            f.write(rotated)
+        print(
+            f"Tesla rotated refresh_token (len={len(rotated)}); wrote to "
+            f"{NEW_REFRESH_TOKEN_FILE} for secret update."
+        )
+    else:
+        print("Tesla returned no new refresh_token (or unchanged).")
+
     status, payload = send_set_amps(access_token, vin, amps)
     print(f"Tesla response: {status} {payload}")
 
